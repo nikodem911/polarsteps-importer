@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from client import PolarstepsAPIClient
 from geocoding_client import GeocodingClient
+from media_processor import process_and_upload_image
 
 def load_json_file(filepath: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """Loads JSON data from a local file, returning a dict or list."""
@@ -163,6 +164,77 @@ def run_trip_import(args: argparse.Namespace) -> None:
     except Exception as err:
         print(f"❌ Failed to create trip: {err}")
 
+def run_media_import(args: argparse.Namespace) -> None:
+    """Handles uploading media files and attaching them to a step."""
+    filepath = getattr(args, "file", None) or getattr(args, "media_flag", None)
+    if not filepath:
+        print("❌ Error: Missing media JSON file path.")
+        return
+
+    try:
+        data = load_json_file(filepath)
+    except Exception as e:
+        print(f"❌ Error loading media JSON file: {e}")
+        return
+
+    entries: List[Dict[str, Any]] = data if isinstance(data, list) else [data]
+    base_dir = os.path.dirname(os.path.abspath(filepath))
+
+    verbose = getattr(args, "verbose", False)
+    polarsteps_client = PolarstepsAPIClient(verbose=verbose)
+
+    for entry_idx, entry in enumerate(entries, start=1):
+        trip_id = entry.get("trip_id")
+        step_id = entry.get("step_id")
+        files = entry.get("files", [])
+
+        if not trip_id or not step_id:
+            print(f"❌ Error in entry #{entry_idx}: Both 'trip_id' and 'step_id' are required.")
+            continue
+
+        if not files:
+            print(f"⚠️ Warning in entry #{entry_idx}: 'files' list is empty. Nothing to upload.")
+            continue
+
+        # Resolve paths relative to the directory of the JSON file
+        resolved_files = []
+        missing_files = []
+        for f in files:
+            full_path = f if os.path.isabs(f) else os.path.normpath(os.path.join(base_dir, f))
+            if os.path.exists(full_path):
+                resolved_files.append(full_path)
+            else:
+                missing_files.append(full_path)
+
+        if missing_files:
+            print(f"❌ Error: The following image file(s) do not exist:")
+            for mf in missing_files:
+                print(f"   - {mf}")
+            print("Aborting media upload for this step.")
+            continue
+
+        print(f"\n🚀 Uploading {len(resolved_files)} image(s) to Step {step_id} (Trip {trip_id})...")
+
+        media_infos = []
+        for order, img_path in enumerate(resolved_files):
+            try:
+                media_info = process_and_upload_image(img_path, order, polarsteps_client, trip_id=trip_id)
+                media_infos.append(media_info)
+            except Exception as err:
+                print(f"❌ Failed to process/upload '{img_path}': {err}")
+
+        if not media_infos:
+            print("❌ No images were uploaded successfully.")
+            continue
+
+        try:
+            result = polarsteps_client.add_media_to_step(trip_id, step_id, media_infos)
+            print(f"✅ Successfully linked {len(media_infos)} media item(s) to step {step_id}!")
+            if verbose:
+                print(json.dumps(result, indent=2))
+        except Exception as err:
+            print(f"❌ Failed to link media to step {step_id}: {err}")
+
 def main() -> None:
     load_dotenv()
 
@@ -175,9 +247,16 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Polarsteps API Importer - Programmatically create trips and steps on Polarsteps.",
+        description="Polarsteps API Importer - Programmatically create trips, steps, and upload media on Polarsteps.",
         parents=[common_parser]
     )
+    parser.add_argument(
+        "-m", "--media",
+        dest="media_flag",
+        metavar="FILE",
+        help="Upload and attach media (pictures) to a step from a JSON file"
+    )
+
     subparsers = parser.add_subparsers(dest="subcommand", help="Action to perform")
 
     # 'steps' subcommand
@@ -212,15 +291,34 @@ def main() -> None:
     )
     trip_parser.set_defaults(func=run_trip_import)
 
+    # 'media' subcommand
+    media_parser = subparsers.add_parser(
+        "media",
+        parents=[common_parser],
+        help="Upload and attach media (pictures) to a step from a JSON file"
+    )
+    media_parser.add_argument(
+        "file",
+        help="Path to media JSON file specifying relative image locations, trip_id, and step_id"
+    )
+    media_parser.set_defaults(func=run_media_import)
+
     if len(sys.argv) == 1:
         parser.print_help()
         print("\nExamples:")
-        print("  python main.py steps step_data.json         # Import steps from step_data.json")
-        print("  python main.py steps step_data.json -v      # Import steps with verbose logging")
-        print("  python main.py trip data.json               # Create trip from data.json")
+        print("  python main.py steps examples/step_data.json   # Import steps from step_data.json")
+        print("  python main.py trip examples/data.json         # Create trip from data.json")
+        print("  python main.py media examples/media_data.json  # Upload media from media_data.json")
+        print("  python main.py -m examples/media_data.json     # Shortcut for media upload")
         return
 
     args = parser.parse_args()
+
+    # If -m/--media flag was provided at top-level
+    if getattr(args, "media_flag", None):
+        run_media_import(args)
+        return
+
     if hasattr(args, "func"):
         args.func(args)
     else:

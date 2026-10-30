@@ -139,3 +139,74 @@ class PolarstepsAPIClient:
         print(f"➡️ [Polarsteps] Creating step: '{payload.get('name')}' for trip ID: {trip_id}")
         response = self._send_request("POST", endpoint, json_data=payload)
         return self._handle_response(response)
+
+    def sign_s3(
+        self,
+        s3_object_name: str,
+        s3_object_type: str = "image/jpeg",
+        media_type: str = "full_res_step_image",
+        trip_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Requests an S3 signed PUT URL from Polarsteps via GET /sign_s3.
+        Uses polarsteps-api-version: 54.
+        """
+        endpoint = f"{self.base_url}/sign_s3"
+        params = {
+            "s3_object_name": s3_object_name,
+            "s3_object_type": s3_object_type,
+            "type": media_type
+        }
+        headers = {"polarsteps-api-version": "54"}
+        if trip_id:
+            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}"
+
+        print(f"➡️ [Polarsteps] Requesting S3 signature for '{media_type}': {s3_object_name}")
+        response = self._send_request("GET", endpoint, headers=headers, params=params)
+        return self._handle_response(response)
+
+    def upload_to_s3(
+        self,
+        signed_url: str,
+        data: bytes,
+        content_type: str = "image/jpeg"
+    ) -> requests.Response:
+        """
+        Uploads raw binary bytes directly to AWS S3 using the signed PUT URL.
+        """
+        headers = {
+            "Content-Type": content_type,
+            "x-amz-acl": "public-read"
+        }
+        if self.verbose:
+            print(f"[RQ Payload] PUT S3 ({len(data)} bytes) to:\n{signed_url[:120]}...")
+
+        response = requests.put(signed_url, data=data, headers=headers)
+
+        if self.verbose:
+            print(f"[RS Payload] {response.status_code} S3 PUT:\n{response.text}\n")
+
+        response.raise_for_status()
+        return response
+
+    def add_media_to_step(
+        self,
+        trip_id: int,
+        step_id: int,
+        media_infos: list
+    ) -> Dict[str, Any]:
+        """
+        Links uploaded S3 media items to a step via POST /api/trips/{trip_id}/steps/{step_id}/media.
+        Uses polarsteps-api-version: 71.
+        """
+        endpoint = f"{self.base_url}/api/trips/{trip_id}/steps/{step_id}/media"
+        headers = {"polarsteps-api-version": "71"}
+        self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}"
+
+        payload = {
+            "type": "image",
+            "media_infos": media_infos
+        }
+        print(f"➡️ [Polarsteps] Linking {len(media_infos)} media item(s) to step {step_id} (trip {trip_id})")
+        response = self._send_request("POST", endpoint, headers=headers, json_data=payload)
+        return self._handle_response(response)
