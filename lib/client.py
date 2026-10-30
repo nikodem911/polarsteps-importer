@@ -211,19 +211,6 @@ class PolarstepsAPIClient:
         response = self._send_request("POST", endpoint, headers=headers, json_data=location_data)
         return self._handle_response(response)
 
-    def get_timezone(self, lat: float, lon: float) -> Dict[str, Any]:
-        """
-        Fetches timezone metadata via GET /api/timezone.
-        Uses polarsteps-api-version: 0 as required by this endpoint.
-        """
-        endpoint = f"{self.base_url}/api/timezone"
-        params = {"lat": lat, "lon": lon}
-        headers = {"polarsteps-api-version": "0"}
-        
-        print(f"➡️ [Polarsteps] Fetching timezone for lat={lat}, lon={lon}")
-        response = self._send_request("GET", endpoint, headers=headers, params=params)
-        return self._handle_response(response)
-
     def create_step(self, step_data: Dict[str, Any], trip_slug: Optional[str] = None) -> Dict[str, Any]:
         """
         Creates a new step in Polarsteps via POST /api/steps.

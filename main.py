@@ -34,8 +34,7 @@ def process_step(
     Executes the step creation process:
       1. Fetch external reverse geocoding details from coordinates
       2. Register location via POST /api/locations (polarsteps-api-version: 13)
-      3. Retrieve timezone if needed via GET /api/timezone
-      4. Create step via POST /api/steps (polarsteps-api-version: 68)
+      3. Create step via POST /api/steps (polarsteps-api-version: 68)
     """
     lat = raw_step.get("location_lat")
     lon = raw_step.get("location_lon")
@@ -81,22 +80,9 @@ def process_step(
             f"Run with -v/--verbose to inspect request and response headers."
         )
 
-    # Stage 3: Fetch timezone
-    timezone_id = location_result.get("timezone_id") or location_result.get("timezone")
-    if not timezone_id:
-        try:
-            tz_data = polarsteps_client.get_timezone(lat, lon)
-            timezone_id = tz_data.get("timezone_id") or tz_data.get("timezone")
-        except Exception as tz_err:
-            print(f"⚠️ Could not fetch timezone from /api/timezone ({tz_err}).")
+    print(f"✅ Location registered in Polarsteps -> ID: {location_id}")
 
-    timezone_id = timezone_id or raw_step.get("timezone_id")
-    if not timezone_id:
-        raise ValueError(f"Could not determine 'timezone_id' for coordinates ({lat}, {lon}). Please specify 'timezone_id' in step data.")
-
-    print(f"✅ Location registered in Polarsteps -> ID: {location_id}, Timezone: {timezone_id}")
-
-    # Stage 4: Create step on Polarsteps
+    # Stage 3: Create step on Polarsteps
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     step_name = raw_step.get("name") or geo_details.get("name") or "New Step"
 
@@ -107,7 +93,6 @@ def process_step(
         "description": raw_step.get("description", ""),
         "start_time": raw_step.get("start_time"),
         "creation_time": raw_step.get("creation_time") or now_iso,
-        "timezone_id": timezone_id,
         "type": raw_step.get("type", 0)
     }
 
