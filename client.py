@@ -20,8 +20,8 @@ class PolarstepsAPIClient:
         # Load from environment if not explicitly passed
         self.remember_token = remember_token or os.getenv("POLARSTEPS_REMEMBER_TOKEN")
         self.session_cookie = session_cookie or os.getenv("POLARSTEPS_SESSION")
-        self.username = username or os.getenv("POLARSTEPS_USERNAME", "NikodemJura")
-        
+        self.username = username or os.getenv("POLARSTEPS_USERNAME")
+
         self.session = requests.Session()
         
         # Set required request headers
