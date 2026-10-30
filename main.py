@@ -8,7 +8,13 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 from dotenv import load_dotenv
 
-from lib import PolarstepsAPIClient, GeocodingClient, process_and_upload_image
+from lib import (
+    PolarstepsAPIClient,
+    GeocodingClient,
+    process_and_upload_image,
+    STEP_TYPE_PUBLISHED,
+    STEP_TYPE_DRAFT,
+)
 
 def load_json_file(filepath: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """Loads JSON data from a local file, returning a dict or list."""
@@ -93,7 +99,7 @@ def process_step(
         "description": raw_step.get("description", ""),
         "start_time": raw_step.get("start_time"),
         "creation_time": raw_step.get("creation_time") or now_iso,
-        "type": raw_step.get("type", 0)
+        "type": raw_step.get("type", STEP_TYPE_PUBLISHED)
     }
 
     step_result = polarsteps_client.create_step(step_payload, trip_slug=slug)

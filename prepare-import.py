@@ -43,6 +43,8 @@ except ImportError:
 
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "out"
 
+from lib import STEP_TYPE_DRAFT, STEP_TYPE_PUBLISHED
+
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff",
     ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw", ".raw"
@@ -453,7 +455,7 @@ def run_generate(args: argparse.Namespace) -> None:
             "name": subdir.name,
             "description": "",
             "start_time": step_start_time,
-            "type": 0,
+            "type": STEP_TYPE_PUBLISHED,
             "media": media_paths
         }
 
@@ -492,7 +494,7 @@ def run_generate(args: argparse.Namespace) -> None:
             "name": "Home",
             "description": "",
             "start_time": home_start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-            "type": 0,
+            "type": STEP_TYPE_PUBLISHED,
             "media": []
         }
         steps.append((home_start_dt, start_home_step))
@@ -510,7 +512,7 @@ def run_generate(args: argparse.Namespace) -> None:
             "name": "Home",
             "description": "",
             "start_time": home_end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-            "type": 0,
+            "type": STEP_TYPE_PUBLISHED,
             "media": []
         }
         steps.append((home_end_dt, end_home_step))
