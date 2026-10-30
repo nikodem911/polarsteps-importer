@@ -19,18 +19,61 @@ import sys
 from typing import Dict, List, Optional, Tuple, Any
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# Fallback: parse .env manually if dotenv is not installed
+SCRIPT_DIR = Path(__file__).resolve().parent
+_env_file = SCRIPT_DIR / ".env"
+if _env_file.exists():
+    with open(_env_file, "r", encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
+try:
     from PIL import Image, ExifTags
 except ImportError:
     Image = None
     ExifTags = None
 
-SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "out"
 
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff",
     ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw", ".raw"
 }
+
+
+def parse_coordinates(coord_str: str) -> Tuple[float, float]:
+    """
+    Parses a string formatted as 'lat,lon' into a tuple of floats.
+    """
+    parts = [p.strip() for p in coord_str.split(",")]
+    if len(parts) != 2:
+        raise ValueError(f"Invalid coordinate format '{coord_str}'. Expected 'lat,lon'.")
+    try:
+        lat = float(parts[0])
+        lon = float(parts[1])
+    except ValueError:
+        raise ValueError(f"Invalid numeric values in coordinates: '{coord_str}'.")
+    return (lat, lon)
+
+
+def validate_date_string(date_str: str, arg_name: str) -> str:
+    """
+    Validates that date_str is in YYYY-MM-DD format.
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
+    except ValueError:
+        print(f"Error: Invalid date format for {arg_name}: '{date_str}'. Expected 'YYYY-MM-DD'.", file=sys.stderr)
+        sys.exit(1)
 
 
 def extract_date_from_exif(image_path: Path) -> Optional[str]:
@@ -291,7 +334,7 @@ def run_generate(args: argparse.Namespace) -> None:
     """
     Executes the 'generate' command:
     Scans subdirectories in input_dir, extracts oldest picture start_time and GPS,
-    and creates a Polarsteps import JSON file compatible with main.py import.
+    synthesizes Home steps if requested, and creates a Polarsteps import JSON file.
     """
     input_dir: Optional[Path] = args.input_dir or args.input_dir_opt
     if not input_dir:
@@ -310,10 +353,41 @@ def run_generate(args: argparse.Namespace) -> None:
     output_file: Path = (args.output.resolve() if args.output else (input_path / "import_data.json"))
     output_dir = output_file.parent
 
+    # Validate custom start/end dates if provided
+    custom_start_date = validate_date_string(args.start_date, "--start-date") if args.start_date else None
+    custom_end_date = validate_date_string(args.end_date, "--end-date") if args.end_date else None
+
+    if custom_start_date and custom_end_date and custom_start_date > custom_end_date:
+        print(f"Error: --start-date ({custom_start_date}) cannot be after --end-date ({custom_end_date}).", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve Home location
+    home_coords: Optional[Tuple[float, float]] = None
+    if args.home:
+        try:
+            home_coords = parse_coordinates(args.home)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.default_home:
+        env_home = os.environ.get("POLARSTEPS_HOME_LOCATION")
+        if not env_home:
+            print("Error: --default-home was specified, but POLARSTEPS_HOME_LOCATION is not set in environment or .env.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            home_coords = parse_coordinates(env_home)
+        except ValueError as e:
+            print(f"Error in POLARSTEPS_HOME_LOCATION: {e}", file=sys.stderr)
+            sys.exit(1)
+
     print("=" * 60)
     print("📝 Generating Polarsteps import file with command: 'generate'")
     print(f"📂 Input directory:  {input_path}")
     print(f"📄 Output file:      {output_file}")
+    if home_coords:
+        print(f"🏠 Home location:    {home_coords[0]}, {home_coords[1]}")
+    if custom_start_date or custom_end_date:
+        print(f"📅 Custom dates:     {custom_start_date or '(from pictures)'} to {custom_end_date or '(from pictures)'}")
     print("=" * 60)
 
     # Subdirectories represent individual steps
@@ -325,13 +399,11 @@ def run_generate(args: argparse.Namespace) -> None:
     steps: List[Tuple[datetime, Dict[str, Any]]] = []
 
     for subdir in sorted(subdirs):
-        # Collect pictures in this subdirectory
         pics = [f for f in subdir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS]
         if not pics:
             print(f"⚠️  Skipping '{subdir.name}': No supported picture files found.")
             continue
 
-        # Extract metadata for all pictures
         pic_meta_list = []
         for p in pics:
             dt, iso_str, gps = extract_image_metadata(p)
@@ -388,15 +460,64 @@ def run_generate(args: argparse.Namespace) -> None:
         steps.append((oldest["dt"], step_dict))
 
     if not steps:
-        print("❌ No steps were generated. Aborting.", file=sys.stderr)
+        print("❌ No steps were generated from pictures. Aborting.", file=sys.stderr)
         sys.exit(1)
 
-    # Sort steps chronologically by start_time
+    # Sort picture steps chronologically
+    steps.sort(key=lambda s: s[0])
+
+    earliest_pic_dt = steps[0][0]
+    latest_pic_dt = steps[-1][0]
+    earliest_pic_date = earliest_pic_dt.strftime("%Y-%m-%d")
+    latest_pic_date = latest_pic_dt.strftime("%Y-%m-%d")
+
+    final_start_date = custom_start_date or earliest_pic_date
+    final_end_date = custom_end_date or latest_pic_date
+
+    # If home location is provided, synthesize start and end "Home" steps
+    if home_coords:
+        home_lat = round(home_coords[0], 7)
+        home_lon = round(home_coords[1], 7)
+
+        # 1. Synthesize Start Home step
+        start_day_dt = datetime.strptime(final_start_date, "%Y-%m-%d").replace(hour=8, minute=0, second=0, tzinfo=timezone.utc)
+        if start_day_dt >= earliest_pic_dt:
+            home_start_dt = earliest_pic_dt - timedelta(hours=1)
+        else:
+            home_start_dt = start_day_dt
+
+        start_home_step = {
+            "location_lat": home_lat,
+            "location_lon": home_lon,
+            "name": "Home",
+            "description": "",
+            "start_time": home_start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "type": 0,
+            "media": []
+        }
+        steps.append((home_start_dt, start_home_step))
+
+        # 2. Synthesize Finish Home step
+        end_day_dt = datetime.strptime(final_end_date, "%Y-%m-%d").replace(hour=20, minute=0, second=0, tzinfo=timezone.utc)
+        if end_day_dt <= latest_pic_dt:
+            home_end_dt = latest_pic_dt + timedelta(hours=1)
+        else:
+            home_end_dt = end_day_dt
+
+        end_home_step = {
+            "location_lat": home_lat,
+            "location_lon": home_lon,
+            "name": "Home",
+            "description": "",
+            "start_time": home_end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "type": 0,
+            "media": []
+        }
+        steps.append((home_end_dt, end_home_step))
+
+    # Sort all steps chronologically
     steps.sort(key=lambda s: s[0])
     sorted_steps = [s[1] for s in steps]
-
-    earliest_date = sorted_steps[0]["start_time"][:10]
-    latest_date = sorted_steps[-1]["start_time"][:10]
 
     trip_name = args.trip_name or input_path.name
     trip_description = args.trip_description or ""
@@ -405,8 +526,8 @@ def run_generate(args: argparse.Namespace) -> None:
     import_data = {
         "name": trip_name,
         "description": trip_description,
-        "start_date": earliest_date,
-        "end_date": latest_date,
+        "start_date": final_start_date,
+        "end_date": final_end_date,
         "is_public": is_public,
         "steps": sorted_steps
     }
@@ -418,7 +539,7 @@ def run_generate(args: argparse.Namespace) -> None:
     print("\n" + "=" * 60)
     print("📊 Generation Summary:")
     print(f"   Trip name:   {trip_name}")
-    print(f"   Date range:  {earliest_date} to {latest_date}")
+    print(f"   Date range:  {final_start_date} to {final_end_date}")
     print(f"   Steps count: {len(sorted_steps)}")
     for s in sorted_steps:
         print(f"     📍 {s['name']}: {len(s['media'])} picture(s), coords: ({s['location_lat']}, {s['location_lon']}), start: {s['start_time']}")
@@ -519,6 +640,30 @@ def main() -> None:
         help="Description of the trip (default: empty)"
     )
     generate_parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Trip start date (YYYY-MM-DD). If omitted, taken from pictures."
+    )
+    generate_parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="Trip end date (YYYY-MM-DD). If omitted, taken from pictures."
+    )
+    generate_parser.add_argument(
+        "--home",
+        type=str,
+        default=None,
+        help="Home location as 'lat,lon' (e.g. '52.5200,13.4050'). Synthesizes start/end Home steps."
+    )
+    generate_parser.add_argument(
+        "--default-home",
+        action="store_true",
+        default=False,
+        help="Use home location from POLARSTEPS_HOME_LOCATION environment variable (or .env file)."
+    )
+    generate_parser.add_argument(
         "--is-public",
         action="store_true",
         default=False,
@@ -532,7 +677,8 @@ def main() -> None:
         print("  python prepare-import.py group /path/to/photos")
         print("  python prepare-import.py group /path/to/photos -o out")
         print("  python prepare-import.py generate out")
-        print("  python prepare-import.py generate out -o out/import_data.json --trip-name 'Barcelona Trip'")
+        print("  python prepare-import.py generate out --home 52.5200,13.4050 --start-date 2026-10-16 --end-date 2026-10-20")
+        print("  python prepare-import.py generate out --default-home")
         return
 
     args = parser.parse_args()
