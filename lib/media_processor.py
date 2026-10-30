@@ -9,7 +9,7 @@ except ImportError:
     Image = None
     ImageOps = None
 
-from client import PolarstepsAPIClient
+from .client import PolarstepsAPIClient
 
 def extract_image_data(file_path: str) -> Tuple[bytes, bytes, bytes, int, int, str]:
     """

@@ -8,9 +8,7 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 from dotenv import load_dotenv
 
-from client import PolarstepsAPIClient
-from geocoding_client import GeocodingClient
-from media_processor import process_and_upload_image
+from lib import PolarstepsAPIClient, GeocodingClient, process_and_upload_image
 
 def load_json_file(filepath: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """Loads JSON data from a local file, returning a dict or list."""
