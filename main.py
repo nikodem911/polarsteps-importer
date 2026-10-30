@@ -52,7 +52,6 @@ def process_step(
 
     # Stage 1: External reverse geocoding
     geo_details = geocoding_client.get_location_details(lat, lon)
-    print(f"✅ Geocoding resolved: {geo_details.get('resolved_name')}, {geo_details.get('full_detail')}")
 
     # Stage 2: Register location with Polarsteps via POST /api/locations
     if raw_step.get("location_id"):
@@ -157,7 +156,6 @@ def run_trip_import(args: argparse.Namespace) -> None:
         print("❌ Error: Trip data must be a JSON object.")
         return
 
-    verbose = getattr(args, "verbose", False)
     polarsteps_client = _make_client(args)
     print(f"🚀 Creating trip from '{filepath}'...")
     try:
@@ -184,7 +182,6 @@ def run_media_import(args: argparse.Namespace) -> None:
     entries: List[Dict[str, Any]] = data if isinstance(data, list) else [data]
     base_dir = os.path.dirname(os.path.abspath(filepath))
 
-    verbose = getattr(args, "verbose", False)
     polarsteps_client = _make_client(args)
 
     for entry_idx, entry in enumerate(entries, start=1):

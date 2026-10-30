@@ -2,11 +2,13 @@ import json
 import requests
 from typing import Dict, Any, Optional
 
+
 class GeocodingClient:
     """
     Client for reverse geocoding coordinates (lat, lon) into human-readable place names
     and location details required by Polarsteps /api/locations.
     """
+
     def __init__(
         self,
         base_url: str = "https://nominatim.openstreetmap.org/reverse",

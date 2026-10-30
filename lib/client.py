@@ -19,6 +19,13 @@ class PolarstepsAPIClient:
     """
     Client handling REST API requests to Polarsteps (browser-emulated).
     """
+
+    # Polarsteps API versions required by each endpoint
+    _API_VERSION_DEFAULT   = "68"   # trips, steps
+    _API_VERSION_LOCATIONS = "13"   # /api/locations
+    _API_VERSION_SIGN_S3   = "54"   # /sign_s3
+    _API_VERSION_MEDIA     = "71"   # /api/trips/{id}/steps/{id}/media
+
     def __init__(
         self,
         remember_token: Optional[str] = None,
@@ -31,17 +38,16 @@ class PolarstepsAPIClient:
         self.verbose = verbose
         self.dump_path = dump          # path to write .har file, or None
         self._har_entries: List[Dict[str, Any]] = []
-        
-        self._har_entries: List[Dict[str, Any]] = []
 
         # Load from environment if not explicitly passed
         self.remember_token = remember_token or os.getenv("POLARSTEPS_REMEMBER_TOKEN")
         self.session_cookie = session_cookie or os.getenv("POLARSTEPS_SESSION")
         self.username = username or os.getenv("POLARSTEPS_USERNAME")
 
+        # Primary session for all Polarsteps API calls
         self.session = requests.Session()
         print(f"🔑 Initialized PolarstepsAPIClient for user: {self.username}")
-        
+
         # Set required request headers
         self.session.headers.update({
             "Accept": "*/*",
@@ -49,15 +55,18 @@ class PolarstepsAPIClient:
             "Content-Type": "application/json",
             "Origin": self.base_url,
             "Referer": f"{self.base_url}/{self.username}",
-            "polarsteps-api-version": "68",
+            "polarsteps-api-version": self._API_VERSION_DEFAULT,
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
         })
-        
+
         # Inject required cookies into the session jar
         if self.remember_token:
             self.session.cookies.set("remember_token", self.remember_token, domain="www.polarsteps.com")
         if self.session_cookie:
             self.session.cookies.set("session", self.session_cookie, domain="www.polarsteps.com")
+
+        # Separate bare session for S3 uploads — must NOT carry Polarsteps cookies or headers
+        self._s3_session = requests.Session()
 
     def _send_request(
         self,
@@ -179,15 +188,20 @@ class PolarstepsAPIClient:
             print("❌ Error: Response body is not valid JSON.")
             return {"raw_text": response.text}
 
+    def _referer(self, trip_id: Optional[int], slug: Optional[str] = None, suffix: str = "") -> str:
+        """Builds a Referer URL for a given trip ID and optional slug."""
+        ref_slug = f"-{slug}" if slug else ""
+        return f"{self.base_url}/{self.username}/{trip_id}{ref_slug}{suffix}"
+
     def create_trip(self, trip_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Creates a new trip using the /api/trips endpoint.
         """
         endpoint = f"{self.base_url}/api/trips"
-        self.session.headers["polarsteps-api-version"] = "68"
-        
+        headers = {"polarsteps-api-version": self._API_VERSION_DEFAULT}
+
         print(f"➡️ [Polarsteps] Sending POST request to create trip: '{trip_data.get('name')}'")
-        response = self._send_request("POST", endpoint, json_data=trip_data)
+        response = self._send_request("POST", endpoint, headers=headers, json_data=trip_data)
         return self._handle_response(response)
 
     def create_location_object(
@@ -201,11 +215,10 @@ class PolarstepsAPIClient:
         Uses polarsteps-api-version: 13 as required by this endpoint.
         """
         endpoint = f"{self.base_url}/api/locations"
-        headers = {"polarsteps-api-version": "13"}
-        
+        headers: Dict[str, str] = {"polarsteps-api-version": self._API_VERSION_LOCATIONS}
+
         if trip_id:
-            ref_slug = f"-{trip_slug}" if trip_slug else ""
-            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}{ref_slug}?mode=track"
+            headers["Referer"] = self._referer(trip_id, trip_slug, "?mode=track")
 
         print(f"➡️ [Polarsteps] Creating location object: '{location_data.get('name')}' at lat={location_data.get('lat')}, lon={location_data.get('lon')}")
         response = self._send_request("POST", endpoint, headers=headers, json_data=location_data)
@@ -214,23 +227,21 @@ class PolarstepsAPIClient:
     def create_step(self, step_data: Dict[str, Any], trip_slug: Optional[str] = None) -> Dict[str, Any]:
         """
         Creates a new step in Polarsteps via POST /api/steps.
-        Sets the appropriate Referer header containing the trip slug.
         Uses polarsteps-api-version: 68.
         """
         endpoint = f"{self.base_url}/api/steps"
-        
+
         # Copy to avoid mutating original dictionary
         payload = dict(step_data)
         slug = trip_slug or payload.pop("trip_slug", None)
-        
-        trip_id = payload.get("trip_id")
-        if trip_id:
-            ref_slug = f"-{slug}" if slug else ""
-            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}{ref_slug}?mode=track"
 
-        self.session.headers["polarsteps-api-version"] = "68"
+        trip_id = payload.get("trip_id")
+        headers: Dict[str, str] = {"polarsteps-api-version": self._API_VERSION_DEFAULT}
+        if trip_id:
+            headers["Referer"] = self._referer(trip_id, slug, "?mode=track")
+
         print(f"➡️ [Polarsteps] Creating step: '{payload.get('name')}' for trip ID: {trip_id}")
-        response = self._send_request("POST", endpoint, json_data=payload)
+        response = self._send_request("POST", endpoint, headers=headers, json_data=payload)
         return self._handle_response(response)
 
     def sign_s3(
@@ -250,9 +261,9 @@ class PolarstepsAPIClient:
             "s3_object_type": s3_object_type,
             "type": media_type
         }
-        headers = {"polarsteps-api-version": "54"}
+        headers: Dict[str, str] = {"polarsteps-api-version": self._API_VERSION_SIGN_S3}
         if trip_id:
-            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}"
+            headers["Referer"] = self._referer(trip_id)
 
         print(f"➡️ [Polarsteps] Requesting S3 signature for '{media_type}': {s3_object_name}")
         response = self._send_request("GET", endpoint, headers=headers, params=params)
@@ -266,6 +277,8 @@ class PolarstepsAPIClient:
     ) -> requests.Response:
         """
         Uploads raw binary bytes directly to AWS S3 using the signed PUT URL.
+        Uses a dedicated bare session so that Polarsteps cookies and headers
+        are NOT forwarded to S3.
         """
         headers = {
             "Content-Type": content_type,
@@ -275,7 +288,7 @@ class PolarstepsAPIClient:
             print(f"[RQ Payload] PUT S3 ({len(data)} bytes) to:\n{signed_url[:120]}...")
 
         started = time.time()
-        response = requests.put(signed_url, data=data, headers=headers)
+        response = self._s3_session.put(signed_url, data=data, headers=headers)
         elapsed_ms = int((time.time() - started) * 1000)
 
         if self.verbose:
@@ -298,8 +311,10 @@ class PolarstepsAPIClient:
         Uses polarsteps-api-version: 71.
         """
         endpoint = f"{self.base_url}/api/trips/{trip_id}/steps/{step_id}/media"
-        headers = {"polarsteps-api-version": "71"}
-        self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}"
+        headers: Dict[str, str] = {
+            "polarsteps-api-version": self._API_VERSION_MEDIA,
+            "Referer": self._referer(trip_id),
+        }
 
         payload = {
             "type": "image",

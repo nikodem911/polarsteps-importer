@@ -22,18 +22,15 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass
-
-# Fallback: parse .env manually if dotenv is not installed
-SCRIPT_DIR = Path(__file__).resolve().parent
-_env_file = SCRIPT_DIR / ".env"
-if _env_file.exists():
-    with open(_env_file, "r", encoding="utf-8") as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _k, _v = _line.split("=", 1)
-                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+    # Fallback: parse .env manually when python-dotenv is not installed
+    _env_file = Path(__file__).resolve().parent / ".env"
+    if _env_file.exists():
+        with open(_env_file, "r", encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
 try:
     from PIL import Image, ExifTags
@@ -41,9 +38,23 @@ except ImportError:
     Image = None
     ExifTags = None
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "out"
 
 from lib import STEP_TYPE_DRAFT, STEP_TYPE_PUBLISHED
+from lib.exif_constants import (
+    EXIF_IFD_EXIF,
+    EXIF_IFD_GPS,
+    EXIF_TAG_DATETIME,
+    EXIF_TAG_DATETIME_ORIGINAL,
+    EXIF_TAG_DATETIME_DIGITIZED,
+    EXIF_TAG_OFFSET_TIME,
+    EXIF_TAG_OFFSET_TIME_ORIG,
+    GPS_TAG_LAT,
+    GPS_TAG_LAT_REF,
+    GPS_TAG_LON,
+    GPS_TAG_LON_REF,
+)
 
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff",
@@ -97,22 +108,25 @@ def extract_date_from_exif(image_path: Path) -> Optional[str]:
 
             date_str = None
 
-            # 1. Try Exif SubIFD (tag 0x8769 / 34665)
-            # DateTimeOriginal (36867), DateTimeDigitized (36868)
+            # 1. Try Exif SubIFD (DateTimeOriginal, DateTimeDigitized, DateTime)
             try:
-                sub_ifd = exif.get_ifd(0x8769)
+                sub_ifd = exif.get_ifd(EXIF_IFD_EXIF)
                 if sub_ifd:
                     date_str = (
-                        sub_ifd.get(36867)  # DateTimeOriginal
-                        or sub_ifd.get(36868)  # DateTimeDigitized
-                        or sub_ifd.get(306)    # DateTime
+                        sub_ifd.get(EXIF_TAG_DATETIME_ORIGINAL)
+                        or sub_ifd.get(EXIF_TAG_DATETIME_DIGITIZED)
+                        or sub_ifd.get(EXIF_TAG_DATETIME)
                     )
             except Exception:
                 pass
 
             # 2. Try root IFD tags if not found in SubIFD
             if not date_str:
-                date_str = exif.get(36867) or exif.get(36868) or exif.get(306)
+                date_str = (
+                    exif.get(EXIF_TAG_DATETIME_ORIGINAL)
+                    or exif.get(EXIF_TAG_DATETIME_DIGITIZED)
+                    or exif.get(EXIF_TAG_DATETIME)
+                )
 
             if date_str:
                 match = re.search(r"(\d{4})[:\-](\d{2})[:\-](\d{2})", str(date_str))
@@ -131,14 +145,14 @@ def extract_gps_coordinates(exif) -> Optional[Tuple[float, float]]:
     Returns (lat, lon) or None.
     """
     try:
-        gps_ifd = exif.get_ifd(0x8825)
-        if not gps_ifd or 2 not in gps_ifd or 4 not in gps_ifd:
+        gps_ifd = exif.get_ifd(EXIF_IFD_GPS)
+        if not gps_ifd or GPS_TAG_LAT not in gps_ifd or GPS_TAG_LON not in gps_ifd:
             return None
 
-        lat_ref = gps_ifd.get(1, "N")
-        lat_raw = gps_ifd[2]
-        lon_ref = gps_ifd.get(3, "E")
-        lon_raw = gps_ifd[4]
+        lat_ref = gps_ifd.get(GPS_TAG_LAT_REF, "N")
+        lat_raw = gps_ifd[GPS_TAG_LAT]
+        lon_ref = gps_ifd.get(GPS_TAG_LON_REF, "E")
+        lon_raw = gps_ifd[GPS_TAG_LON]
 
         def dms_to_deg(val) -> float:
             d = float(val[0])
@@ -182,17 +196,17 @@ def extract_image_metadata(image_path: Path) -> Tuple[datetime, str, Optional[Tu
 
                 sub_ifd = {}
                 try:
-                    sub_ifd = exif.get_ifd(0x8769) or {}
+                    sub_ifd = exif.get_ifd(EXIF_IFD_EXIF) or {}
                 except Exception:
                     pass
 
                 date_str = (
-                    sub_ifd.get(36867)  # DateTimeOriginal
-                    or sub_ifd.get(36868)  # DateTimeDigitized
-                    or exif.get(36867)
-                    or exif.get(306)  # DateTime
+                    sub_ifd.get(EXIF_TAG_DATETIME_ORIGINAL)
+                    or sub_ifd.get(EXIF_TAG_DATETIME_DIGITIZED)
+                    or exif.get(EXIF_TAG_DATETIME_ORIGINAL)
+                    or exif.get(EXIF_TAG_DATETIME)
                 )
-                offset_str = sub_ifd.get(36880) or sub_ifd.get(36881)
+                offset_str = sub_ifd.get(EXIF_TAG_OFFSET_TIME) or sub_ifd.get(EXIF_TAG_OFFSET_TIME_ORIG)
 
                 if date_str:
                     match = re.search(r"(\d{4})[:\-](\d{2})[:\-](\d{2})\s+(\d{2}):(\d{2}):(\d{2})", str(date_str))
