@@ -40,7 +40,8 @@ class PolarstepsAPIClient:
         self.username = username or os.getenv("POLARSTEPS_USERNAME")
 
         self.session = requests.Session()
-        
+        print(f"🔑 Initialized PolarstepsAPIClient for user: {self.username}"
+              )
         # Set required request headers
         self.session.headers.update({
             "Accept": "*/*",
