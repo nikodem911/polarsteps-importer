@@ -1,7 +1,19 @@
 import json
 import os
+import time
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
+
+
+def _headers_to_har(headers: dict) -> List[Dict[str, str]]:
+    """Convert a dict (or CaseInsensitiveDict) to HAR name/value list."""
+    return [{"name": k, "value": v} for k, v in headers.items()]
+
+
+def _cookies_to_har(cookie_jar) -> List[Dict[str, str]]:
+    """Convert a requests CookieJar to HAR cookie list."""
+    return [{"name": c.name, "value": c.value} for c in cookie_jar]
+
 
 class PolarstepsAPIClient:
     """
@@ -12,11 +24,16 @@ class PolarstepsAPIClient:
         remember_token: Optional[str] = None,
         session_cookie: Optional[str] = None,
         username: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        dump: Optional[str] = None
     ):
         self.base_url = "https://www.polarsteps.com"
         self.verbose = verbose
+        self.dump_path = dump          # path to write .har file, or None
+        self._har_entries: List[Dict[str, Any]] = []
         
+        self._har_entries: List[Dict[str, Any]] = []
+
         # Load from environment if not explicitly passed
         self.remember_token = remember_token or os.getenv("POLARSTEPS_REMEMBER_TOKEN")
         self.session_cookie = session_cookie or os.getenv("POLARSTEPS_SESSION")
@@ -49,18 +66,105 @@ class PolarstepsAPIClient:
         params: Optional[Dict[str, Any]] = None,
         json_data: Optional[Dict[str, Any]] = None
     ) -> requests.Response:
-        """Sends an HTTP request with optional verbose logging of RQ/RS payloads."""
+        """Sends an HTTP request with optional verbose logging and HAR dumping."""
         if self.verbose:
             payload = json_data or params
             if payload:
                 print(f"[RQ Payload] {method} {url}:\n{json.dumps(payload, indent=2)}")
 
+        started = time.time()
         response = self.session.request(method, url, headers=headers, params=params, json=json_data)
+        elapsed_ms = int((time.time() - started) * 1000)
 
         if self.verbose:
             print(f"[RS Payload] {response.status_code} {url}:\n{response.text}\n")
 
+        if self.dump_path is not None:
+            self._record_har_entry(response, elapsed_ms, json_data)
+
         return response
+
+    def _record_har_entry(
+        self,
+        response: requests.Response,
+        elapsed_ms: int,
+        json_data: Optional[Dict[str, Any]]
+    ) -> None:
+        """Appends a HAR-format entry for the completed request/response pair."""
+        req = response.request
+
+        # Request body
+        post_data: Optional[Dict[str, Any]] = None
+        if json_data is not None:
+            post_data = {
+                "mimeType": "application/json",
+                "text": json.dumps(json_data)
+            }
+        elif req.body:
+            body_text = req.body if isinstance(req.body, str) else req.body.decode("utf-8", errors="replace")
+            post_data = {"mimeType": "application/octet-stream", "text": body_text}
+
+        # Response body
+        try:
+            rs_body = response.text
+        except Exception:
+            rs_body = ""
+
+        entry = {
+            "startedDateTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "time": elapsed_ms,
+            "request": {
+                "method": req.method,
+                "url": req.url,
+                "httpVersion": "HTTP/1.1",
+                "headers": _headers_to_har(req.headers),
+                "cookies": _cookies_to_har(self.session.cookies),
+                "queryString": [
+                    {"name": k, "value": v}
+                    for k, v in (
+                        [pair.split("=", 1) if "=" in pair else (pair, "")
+                         for pair in req.url.split("?", 1)[1].split("&")]
+                        if "?" in req.url else []
+                    )
+                ],
+                "postData": post_data,
+                "headersSize": -1,
+                "bodySize": len(req.body) if req.body else 0,
+            },
+            "response": {
+                "status": response.status_code,
+                "statusText": response.reason or "",
+                "httpVersion": "HTTP/1.1",
+                "headers": _headers_to_har(response.headers),
+                "cookies": [],
+                "content": {
+                    "size": len(rs_body),
+                    "mimeType": response.headers.get("Content-Type", "application/json"),
+                    "text": rs_body,
+                },
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": len(rs_body),
+            },
+            "timings": {"send": 0, "wait": elapsed_ms, "receive": 0},
+        }
+        self._har_entries.append(entry)
+
+    def flush_har(self) -> None:
+        """Writes all recorded HAR entries to the configured dump path."""
+        if not self.dump_path or not self._har_entries:
+            return
+
+        har = {
+            "log": {
+                "version": "1.2",
+                "creator": {"name": "polarsteps-importer", "version": "1.0"},
+                "entries": self._har_entries,
+            }
+        }
+        with open(self.dump_path, "w", encoding="utf-8") as f:
+            json.dump(har, f, indent=2)
+        print(f"📄 HAR dump written to: {self.dump_path}")
 
     def _handle_response(self, response: requests.Response) -> Dict[str, Any]:
         """Helper to process HTTP responses and catch errors."""
@@ -181,10 +285,15 @@ class PolarstepsAPIClient:
         if self.verbose:
             print(f"[RQ Payload] PUT S3 ({len(data)} bytes) to:\n{signed_url[:120]}...")
 
+        started = time.time()
         response = requests.put(signed_url, data=data, headers=headers)
+        elapsed_ms = int((time.time() - started) * 1000)
 
         if self.verbose:
             print(f"[RS Payload] {response.status_code} S3 PUT:\n{response.text}\n")
+
+        if self.dump_path is not None:
+            self._record_har_entry(response, elapsed_ms, None)
 
         response.raise_for_status()
         return response

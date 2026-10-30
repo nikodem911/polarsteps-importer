@@ -19,6 +19,13 @@ def load_json_file(filepath: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def _make_client(args: argparse.Namespace) -> PolarstepsAPIClient:
+    """Constructs a PolarstepsAPIClient from parsed CLI args."""
+    return PolarstepsAPIClient(
+        verbose=getattr(args, "verbose", False),
+        dump=getattr(args, "dump", None),
+    )
+
 def process_step(
     raw_step: Dict[str, Any],
     geocoding_client: GeocodingClient,
@@ -123,9 +130,8 @@ def run_step_import(args: argparse.Namespace) -> None:
 
     print(f"🚀 Starting step import: {total_steps} step(s) to process from '{filepath}'.")
 
-    verbose = getattr(args, "verbose", False)
-    geocoding_client = GeocodingClient(verbose=verbose)
-    polarsteps_client = PolarstepsAPIClient(verbose=verbose)
+    geocoding_client = GeocodingClient(verbose=getattr(args, "verbose", False))
+    polarsteps_client = _make_client(args)
 
     successful = 0
     for idx, raw_step in enumerate(steps, start=1):
@@ -139,6 +145,7 @@ def run_step_import(args: argparse.Namespace) -> None:
         except Exception as err:
             print(f"❌ Failed to create step '{step_name}': {err}")
 
+    polarsteps_client.flush_har()
     print(f"\n✨ Import finished: {successful}/{total_steps} step(s) created successfully.")
 
 def run_trip_import(args: argparse.Namespace) -> None:
@@ -155,7 +162,7 @@ def run_trip_import(args: argparse.Namespace) -> None:
         return
 
     verbose = getattr(args, "verbose", False)
-    polarsteps_client = PolarstepsAPIClient(verbose=verbose)
+    polarsteps_client = _make_client(args)
     print(f"🚀 Creating trip from '{filepath}'...")
     try:
         result = polarsteps_client.create_trip(trip_payload)
@@ -163,6 +170,8 @@ def run_trip_import(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
     except Exception as err:
         print(f"❌ Failed to create trip: {err}")
+    finally:
+        polarsteps_client.flush_har()
 
 def run_media_import(args: argparse.Namespace) -> None:
     """Handles uploading media files and attaching them to a step."""
@@ -181,7 +190,7 @@ def run_media_import(args: argparse.Namespace) -> None:
     base_dir = os.path.dirname(os.path.abspath(filepath))
 
     verbose = getattr(args, "verbose", False)
-    polarsteps_client = PolarstepsAPIClient(verbose=verbose)
+    polarsteps_client = _make_client(args)
 
     for entry_idx, entry in enumerate(entries, start=1):
         trip_id = entry.get("trip_id")
@@ -197,6 +206,8 @@ def run_media_import(args: argparse.Namespace) -> None:
             continue
 
         _upload_step_media(files, base_dir, trip_id, step_id, polarsteps_client)
+
+    polarsteps_client.flush_har()
 
 def _upload_step_media(
     media_files: List[str],
@@ -261,7 +272,7 @@ def run_import(args: argparse.Namespace) -> None:
 
     verbose = getattr(args, "verbose", False)
     geocoding_client = GeocodingClient(verbose=verbose)
-    polarsteps_client = PolarstepsAPIClient(verbose=verbose)
+    polarsteps_client = _make_client(args)
 
     # ── Step 1: Create the trip ───────────────────────────────────────────────
     trip_payload = {k: v for k, v in data.items() if k != "steps"}
@@ -319,6 +330,7 @@ def run_import(args: argparse.Namespace) -> None:
         if media_files:
             _upload_step_media(media_files, base_dir, trip_id, step_id, polarsteps_client)
 
+    polarsteps_client.flush_har()
     print(f"\n✨ Import complete: {successful_steps}/{total} step(s) created successfully.")
 
 
@@ -331,6 +343,12 @@ def main() -> None:
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose output logging all request and response payloads"
+    )
+    common_parser.add_argument(
+        "-d", "--dump",
+        metavar="FILE",
+        default=None,
+        help="Dump all requests and responses to a HAR file for debugging"
     )
 
     parser = argparse.ArgumentParser(
