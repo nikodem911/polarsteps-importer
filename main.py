@@ -166,8 +166,7 @@ def run_trip_import(args: argparse.Namespace) -> None:
     print(f"🚀 Creating trip from '{filepath}'...")
     try:
         result = polarsteps_client.create_trip(trip_payload)
-        print("✅ Trip successfully created!")
-        print(json.dumps(result, indent=2))
+        print(f"✅ Trip {result.get('id')} successfully created!")
     except Exception as err:
         print(f"❌ Failed to create trip: {err}")
     finally:
