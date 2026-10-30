@@ -203,9 +203,9 @@ class PolarstepsAPIClient:
         endpoint = f"{self.base_url}/api/locations"
         headers = {"polarsteps-api-version": "13"}
         
-        slug = trip_slug or "summer-alps-expedition"
         if trip_id:
-            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}-{slug}?mode=track"
+            ref_slug = f"-{trip_slug}" if trip_slug else ""
+            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}{ref_slug}?mode=track"
 
         print(f"➡️ [Polarsteps] Creating location object: '{location_data.get('name')}' at lat={location_data.get('lat')}, lon={location_data.get('lon')}")
         response = self._send_request("POST", endpoint, headers=headers, json_data=location_data)
@@ -234,11 +234,12 @@ class PolarstepsAPIClient:
         
         # Copy to avoid mutating original dictionary
         payload = dict(step_data)
-        slug = trip_slug or payload.pop("trip_slug", None) or "summer-alps-expedition"
+        slug = trip_slug or payload.pop("trip_slug", None)
         
         trip_id = payload.get("trip_id")
         if trip_id:
-            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}-{slug}?mode=track"
+            ref_slug = f"-{slug}" if slug else ""
+            self.session.headers["Referer"] = f"{self.base_url}/{self.username}/{trip_id}{ref_slug}?mode=track"
 
         self.session.headers["polarsteps-api-version"] = "68"
         print(f"➡️ [Polarsteps] Creating step: '{payload.get('name')}' for trip ID: {trip_id}")

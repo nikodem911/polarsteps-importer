@@ -40,7 +40,7 @@ def process_step(
     lat = raw_step.get("location_lat")
     lon = raw_step.get("location_lon")
     trip_id = raw_step.get("trip_id")
-    slug = trip_slug or raw_step.get("trip_slug") or "summer-alps-expedition"
+    slug = trip_slug or raw_step.get("trip_slug")
 
     if lat is None or lon is None:
         raise ValueError("Missing 'location_lat' or 'location_lon' in step data.")
@@ -55,8 +55,12 @@ def process_step(
         location_result = {"id": location_id}
         print(f"ℹ️ Using pre-existing location_id: {location_id}")
     else:
+        country_code = raw_step.get("country_code") or geo_details.get("country_code")
+        if not country_code:
+            raise ValueError(f"Could not determine 'country_code' for coordinates ({lat}, {lon}). Please specify 'country_code' in step data.")
+
         location_payload = {
-            "country_code": raw_step.get("country_code") or geo_details.get("country_code", "ES"),
+            "country_code": country_code,
             "lat": lat,
             "lon": lon,
             "detail": raw_step.get("detail") or geo_details.get("detail") or geo_details.get("country", ""),
@@ -84,9 +88,12 @@ def process_step(
             tz_data = polarsteps_client.get_timezone(lat, lon)
             timezone_id = tz_data.get("timezone_id") or tz_data.get("timezone")
         except Exception as tz_err:
-            print(f"⚠️ Could not fetch timezone from /api/timezone ({tz_err}). Using default.")
+            print(f"⚠️ Could not fetch timezone from /api/timezone ({tz_err}).")
 
-    timezone_id = timezone_id or raw_step.get("timezone_id", "Europe/Madrid")
+    timezone_id = timezone_id or raw_step.get("timezone_id")
+    if not timezone_id:
+        raise ValueError(f"Could not determine 'timezone_id' for coordinates ({lat}, {lon}). Please specify 'timezone_id' in step data.")
+
     print(f"✅ Location registered in Polarsteps -> ID: {location_id}, Timezone: {timezone_id}")
 
     # Stage 4: Create step on Polarsteps
@@ -375,7 +382,7 @@ def main() -> None:
     steps_parser.add_argument(
         "--trip-slug",
         default=None,
-        help="Optional trip slug used for Referer header (e.g. 'summer-alps-expedition')"
+        help="Optional trip slug used for Referer header"
     )
     steps_parser.set_defaults(func=run_step_import)
 

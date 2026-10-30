@@ -96,15 +96,5 @@ class GeocodingClient:
             return result
 
         except Exception as err:
-            print(f"⚠️ [GeocodingAPI] Failed to fetch external geocoding details ({err}). Using fallback values.")
-            return {
-                "lat": lat,
-                "lon": lon,
-                "name": f"Location ({lat:.4f}, {lon:.4f})",
-                "resolved_name": f"Location ({lat:.4f}, {lon:.4f})",
-                "country_code": "ES" if 36.0 <= lat <= 43.8 and -9.3 <= lon <= 3.3 else "XX",
-                "detail": "Spain" if 36.0 <= lat <= 43.8 and -9.3 <= lon <= 3.3 else "Unknown",
-                "country": "Spain" if 36.0 <= lat <= 43.8 and -9.3 <= lon <= 3.3 else "Unknown",
-                "full_detail": f"Location ({lat:.4f}, {lon:.4f})",
-                "fallback": True
-            }
+            print(f"❌ [GeocodingAPI] Failed to fetch external geocoding details for ({lat}, {lon}): {err}")
+            raise

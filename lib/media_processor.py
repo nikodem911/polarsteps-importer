@@ -50,6 +50,7 @@ def extract_image_data(file_path: str) -> Tuple[bytes, bytes, bytes, int, int, s
         if not taken_time:
             mtime = os.path.getmtime(file_path)
             taken_time = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            print(f"⚠️ [Media] No EXIF date found in '{os.path.basename(file_path)}'. Using file modification time: {taken_time}")
 
         # Prepare full_res bytes (keep original bytes if already JPEG, else encode)
         _, ext = os.path.splitext(file_path.lower())
