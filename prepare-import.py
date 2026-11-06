@@ -241,16 +241,10 @@ def extract_image_metadata(image_path: Path) -> Tuple[datetime, str, Optional[Tu
 def run_group(args: argparse.Namespace) -> None:
     """
     Executes the 'group' command:
-    Reads pictures from input_dir, extracts EXIF date, and moves them to
-    YYYY-MM-DD subdirectories in output_dir.
+    Reads pictures recursively from input_dir, extracts EXIF date, and moves
+    them to YYYY-MM-DD subdirectories in output_dir.
     """
-    input_dir: Optional[Path] = args.input_dir or args.input_dir_opt
-    if not input_dir:
-        print("Error: Input directory is required.", file=sys.stderr)
-        print("Usage: python prepare-import.py group <input_dir> [-o <output_dir>]", file=sys.stderr)
-        sys.exit(1)
-
-    input_path = input_dir.resolve()
+    input_path = args.input_dir.resolve()
     if not input_path.exists():
         print(f"Error: Input directory does not exist: '{input_path}'", file=sys.stderr)
         sys.exit(1)
@@ -258,30 +252,16 @@ def run_group(args: argparse.Namespace) -> None:
         print(f"Error: Input path is not a directory: '{input_path}'", file=sys.stderr)
         sys.exit(1)
 
-    output_path = (args.output_dir.resolve() if args.output_dir else DEFAULT_OUTPUT_DIR.resolve())
-    dry_run: bool = args.dry_run
-    copy_mode: bool = args.copy
-    fallback_mtime: bool = args.fallback_mtime
-    recursive: bool = args.recursive
-
-    action_verb = "Copying" if copy_mode else "Moving"
-    action_done = "Copied" if copy_mode else "Moved"
+    output_path = args.output_dir.resolve() if args.output_dir else DEFAULT_OUTPUT_DIR.resolve()
 
     print("=" * 60)
     print("📸 Preparing pictures with command: 'group'")
     print(f"📂 Input directory:  {input_path}")
     print(f"📁 Output directory: {output_path}")
-    print(f"⚙️  Mode:             {'Dry run (simulation)' if dry_run else ('Copy' if copy_mode else 'Move')}")
     print("=" * 60)
 
-    # Collect files
-    if recursive:
-        file_iterator = input_path.rglob("*")
-    else:
-        file_iterator = input_path.glob("*")
-
     image_files = []
-    for f in file_iterator:
+    for f in input_path.rglob("*"):
         if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
             try:
                 if f.resolve().is_relative_to(output_path):
@@ -304,10 +284,6 @@ def run_group(args: argparse.Namespace) -> None:
     for file_path in image_files:
         date_str = extract_date_from_exif(file_path)
 
-        if not date_str and fallback_mtime:
-            mtime = os.path.getmtime(file_path)
-            date_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-
         if not date_str:
             target_subdir_name = "no-date"
             print(f"⚠️  [No EXIF Date] {file_path.name} -> {target_subdir_name}/")
@@ -319,21 +295,14 @@ def run_group(args: argparse.Namespace) -> None:
 
         counts_by_date[target_subdir_name] = counts_by_date.get(target_subdir_name, 0) + 1
 
-        if dry_run:
-            print(f"[DRY RUN] {action_verb} '{file_path.name}' -> '{dest_file.relative_to(output_path.parent)}'")
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(file_path), str(dest_file))
+            print(f"✅ Moved '{file_path.name}' -> '{target_subdir_name}/{dest_file.name}'")
             success_count += 1
-        else:
-            try:
-                target_dir.mkdir(parents=True, exist_ok=True)
-                if copy_mode:
-                    shutil.copy2(file_path, dest_file)
-                else:
-                    shutil.move(str(file_path), str(dest_file))
-                print(f"✅ {action_done} '{file_path.name}' -> '{target_subdir_name}/{dest_file.name}'")
-                success_count += 1
-            except Exception as e:
-                print(f"❌ Error processing '{file_path.name}': {e}", file=sys.stderr)
-                skipped_count += 1
+        except Exception as e:
+            print(f"❌ Error processing '{file_path.name}': {e}", file=sys.stderr)
+            skipped_count += 1
 
     print("\n" + "=" * 60)
     print("📊 Grouping Summary:")
@@ -578,46 +547,18 @@ def main() -> None:
     # 1. 'group' subcommand
     group_parser = subparsers.add_parser(
         "group",
-        help="Group pictures by date taken (from EXIF) into YYYY-MM-DD subdirectories"
+        help="Recursively move pictures into subdirectories by EXIF date"
     )
     group_parser.add_argument(
         "input_dir",
-        nargs="?",
         type=Path,
-        default=None,
-        help="Directory containing the pictures"
-    )
-    group_parser.add_argument(
-        "-i", "--input-dir",
-        type=Path,
-        dest="input_dir_opt",
-        help="Directory containing the pictures (alternative to positional argument)"
+        help="Directory containing the pictures to scan recursively"
     )
     group_parser.add_argument(
         "-o", "--output-dir",
         type=Path,
         default=None,
-        help="Output directory (default: 'out' relative to script dir)"
-    )
-    group_parser.add_argument(
-        "--copy",
-        action="store_true",
-        help="Copy files instead of moving them"
-    )
-    group_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate actions without modifying files"
-    )
-    group_parser.add_argument(
-        "--recursive", "-r",
-        action="store_true",
-        help="Scan input directory recursively"
-    )
-    group_parser.add_argument(
-        "--fallback-mtime",
-        action="store_true",
-        help="Fallback to file modification date if EXIF date is missing"
+        help="Output directory (default: 'out' next to this script)"
     )
     group_parser.set_defaults(func=run_group)
 
