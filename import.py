@@ -415,11 +415,11 @@ def main() -> None:
     if len(sys.argv) == 1:
         parser.print_help()
         print("\nExamples:")
-        print("  python main.py steps examples/step_data.json       # Import steps from step_data.json")
-        print("  python main.py trip examples/data.json             # Create trip from data.json")
-        print("  python main.py media examples/media_data.json      # Upload media from media_data.json")
-        print("  python main.py -m examples/media_data.json         # Shortcut for media upload")
-        print("  python main.py import examples/import_data.json    # Full import: trip + steps + media")
+        print("  python import.py steps examples/step_data.json       # Import steps from step_data.json")
+        print("  python import.py trip examples/data.json             # Create trip from data.json")
+        print("  python import.py media examples/media_data.json      # Upload media from media_data.json")
+        print("  python import.py -m examples/media_data.json         # Shortcut for media upload")
+        print("  python import.py import examples/import_data.json    # Full import: trip + steps + media")
         return
 
     args = parser.parse_args()

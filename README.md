@@ -18,7 +18,7 @@ A command-line tool to programmatically import trips, steps, and media into [Pol
 - [prepare-import.py — Prepare Pictures](#prepare-importpy--prepare-pictures)
   - [group — Organise by Date](#group--organise-by-date)
   - [generate — Build the Import File](#generate--build-the-import-file)
-- [main.py — Import to Polarsteps](#mainpy--import-to-polarsteps)
+- [import.py — Import to Polarsteps](#importpy--import-to-polarsteps)
   - [import — Full Import (Recommended)](#import--full-import-recommended)
   - [trip — Create a Trip Only](#trip--create-a-trip-only)
   - [steps — Import Steps Only](#steps--import-steps-only)
@@ -113,7 +113,7 @@ The recommended end-to-end flow for importing a photo album (e.g. a Google Photo
 │     Open the generated JSON and verify trip name, dates, step names,    │
 │     coordinates, and media paths. Edit as needed.                       │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  6. Import to Polarsteps  (main.py import)                               │
+│  6. Import to Polarsteps  (import.py import)                             │
 │     Creates the trip, registers each step (with reverse geocoding),     │
 │     uploads all photos to S3, and links them to the step.               │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -171,7 +171,7 @@ out/
 
 ### `generate` — Build the Import File
 
-Scans the (adjusted) output directory, reads the oldest photo's timestamp and GPS per folder, and produces an `import_data.json` ready for `main.py`.
+Scans the (adjusted) output directory, reads the oldest photo's timestamp and GPS per folder, and produces an `import_data.json` ready for `import.py`.
 
 ```bash
 python3 prepare-import.py generate <input_dir> [options]
@@ -201,20 +201,20 @@ python3 prepare-import.py generate out --default-home --trip-name "Alps 2026" --
 
 ---
 
-## `main.py` — Import to Polarsteps
+## `import.py` — Import to Polarsteps
 
 ### `import` — Full Import (Recommended)
 
 Creates the trip, then each step (with reverse geocoding via OpenStreetMap), then uploads and links all media. This is the single command that does everything.
 
 ```bash
-python3 main.py import <import_file.json>
+python3 import.py import <import_file.json>
 ```
 
 **Example:**
 
 ```bash
-python3 main.py import out/import_data.json
+python3 import.py import out/import_data.json
 ```
 
 ---
@@ -224,7 +224,7 @@ python3 main.py import out/import_data.json
 Creates a new trip on Polarsteps from a JSON object. Useful if you want to create the trip separately before adding steps.
 
 ```bash
-python3 main.py trip <trip_file.json>
+python3 import.py trip <trip_file.json>
 ```
 
 **Example `examples/data.json`:**
@@ -240,7 +240,7 @@ python3 main.py trip <trip_file.json>
 ```
 
 ```bash
-python3 main.py trip examples/data.json
+python3 import.py trip examples/data.json
 ```
 
 ---
@@ -250,7 +250,7 @@ python3 main.py trip examples/data.json
 Imports an array of steps into an existing trip. Each step must include `trip_id`.
 
 ```bash
-python3 main.py steps <steps_file.json> [--trip-slug SLUG]
+python3 import.py steps <steps_file.json> [--trip-slug SLUG]
 ```
 
 **Example `examples/step_data.json`:**
@@ -270,7 +270,7 @@ python3 main.py steps <steps_file.json> [--trip-slug SLUG]
 ```
 
 ```bash
-python3 main.py steps examples/step_data.json
+python3 import.py steps examples/step_data.json
 ```
 
 ---
@@ -280,9 +280,9 @@ python3 main.py steps examples/step_data.json
 Uploads image files and links them to an existing step. Useful for adding photos to a step that was already created.
 
 ```bash
-python3 main.py media <media_file.json>
+python3 import.py media <media_file.json>
 # or using the shorthand flag from the root command:
-python3 main.py -m <media_file.json>
+python3 import.py -m <media_file.json>
 ```
 
 **Example `examples/media_data.json`:**
@@ -301,7 +301,7 @@ python3 main.py -m <media_file.json>
 File paths in `files` are resolved relative to the JSON file's directory.
 
 ```bash
-python3 main.py media examples/media_data.json
+python3 import.py media examples/media_data.json
 ```
 
 ---
@@ -366,7 +366,7 @@ These flags work with every subcommand:
 
 ```bash
 # Debug a failing import by inspecting the full HTTP traffic
-python3 main.py -v -d debug.har import out/import_data.json
+python3 import.py -v -d debug.har import out/import_data.json
 ```
 
 ---
@@ -375,7 +375,7 @@ python3 main.py -v -d debug.har import out/import_data.json
 
 ```
 polarsteps-importer/
-├── main.py                  # CLI entry point — trip/step/media/import commands
+├── import.py                # CLI entry point — trip/step/media/import commands
 ├── prepare-import.py        # CLI helper — group and generate commands
 ├── requirements.txt
 ├── .env                     # Your credentials (not committed)

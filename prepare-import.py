@@ -5,7 +5,7 @@ prepare-import.py
 Prepares and organizes pictures for Polarsteps import.
 Supports subcommands for different preparation stages:
   1. group: Organizes pictures by EXIF date taken into YYYY-MM-DD subdirectories.
-  2. generate: Generates import JSON file for main.py from the grouped directories.
+  2. generate: Generates import JSON file for import.py from the grouped directories.
 """
 
 import argparse
@@ -426,7 +426,7 @@ def run_generate(args: argparse.Namespace) -> None:
                 step_lat, step_lon = 0.0, 0.0
                 print(f"⚠️  No GPS coordinates found in '{subdir.name}'. Setting coordinates to 0.0, 0.0.")
 
-        # Media paths relative to output_dir so main.py import can locate them directly
+        # Media paths relative to output_dir so import.py import can locate them directly
         media_paths = []
         for item in pic_meta_list:
             rel_p = Path(os.path.relpath(item["path"], output_dir)).as_posix()
@@ -565,7 +565,7 @@ def main() -> None:
     # 2. 'generate' subcommand
     generate_parser = subparsers.add_parser(
         "generate",
-        help="Generate import JSON file for main.py from grouped picture subdirectories"
+        help="Generate import JSON file for import.py from grouped picture subdirectories"
     )
     generate_parser.add_argument(
         "input_dir",
