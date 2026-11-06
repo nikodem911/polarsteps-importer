@@ -25,8 +25,6 @@ A command-line tool to programmatically import trips, steps, and media into [Pol
   - [media — Upload Media Only](#media--upload-media-only)
 - [JSON File Formats](#json-file-formats)
 - [Global Flags](#global-flags)
-- [Project Structure](#project-structure)
-
 ---
 
 ## Requirements
@@ -369,26 +367,4 @@ These flags work with every subcommand:
 python3 import.py -v -d debug.har import out/import_data.json
 ```
 
----
-
-## Project Structure
-
-```
-polarsteps-importer/
-├── import.py                # CLI entry point — trip/step/media/import commands
-├── prepare-import.py        # CLI helper — group and generate commands
-├── requirements.txt
-├── .env                     # Your credentials (not committed)
-├── lib/
-│   ├── __init__.py          # Package exports and step type constants
-│   ├── client.py            # PolarstepsAPIClient — all API calls
-│   ├── geocoding_client.py  # GeocodingClient — reverse geocoding via Nominatim
-│   ├── media_processor.py   # Image processing, thumbnail generation, S3 upload
-│   └── exif_constants.py    # Shared EXIF tag ID constants
-└── examples/
-    ├── data.json            # Example trip payload
-    ├── step_data.json       # Example steps array
-    ├── import_data.json     # Example full import file
-    └── media_data.json      # Example media upload descriptor
-```
 
